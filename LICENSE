@@ -1,0 +1,11 @@
+---
+
+### **📌 Uploading Your Project to GitHub (Step-by-Step Guide)**  
+
+#### **1️⃣ Initialize Git in Your Project Folder**  
+Open **Terminal** (Mac/Linux) or **Command Prompt/PowerShell** (Windows) and navigate to your project folder:  
+```bash
+cd path/to/your/project
+git init  # Initialize Git
+git add .  # Stage all files
+git commit -m "Initial commit: Adding Office Layout Generator"
