@@ -1,0 +1,10 @@
+torch
+torch-geometric
+matplotlib
+networkx
+numpy
+random
+scikit-learn
+scipy
+numba
+graphviz
