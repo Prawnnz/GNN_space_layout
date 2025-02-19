@@ -1,3 +1,4 @@
+# @title Default title text
 import torch
 from torch_geometric.data import Data
 import random
@@ -5,41 +6,33 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from torch_geometric.utils import to_networkx
 
-# Define architectural and furniture elements
+# Define architectural and furniture elements with pastel colors
 ELEMENTS = {
-    'wall': [0.1, 0.1],   # Wall thickness
-    'door': [1.0, 0.2],   # Door width
-    'window': [1.5, 0.2], # Window width
-    'table': [1.5, 1.0],  # Table dimensions
-    'chair': [0.5, 0.5]   # Chair dimensions
+    'wall': {'size': [0.1, 0.1], 'color': '#A6A6A6'},  # Light Gray
+    'door': {'size': [1.0, 0.2], 'color': '#FFD700'},  # Gold
+    'window': {'size': [1.5, 0.2], 'color': '#87CEEB'},  # Sky Blue
+    'table': {'size': [1.5, 1.0], 'color': '#FFB6C1'},  # Light Pink
+    'chair': {'size': [0.5, 0.5], 'color': '#98FB98'}   # Pale Green
 }
 
-# Utility function to check overlap between objects
+# Function to check if objects overlap
 def is_overlapping(new_obj, existing_objs, min_spacing=0.5):
-    """
-    Check if a new object overlaps with existing objects or violates spacing rules.
-    """
     for obj in existing_objs:
-        #Check if 'width' and 'height' keys exist in both objects
-        if 'width' in obj and 'height' in obj and 'width' in new_obj and 'height' in new_obj:   #Check if keys exists
-          if not (
-              new_obj['x'] + new_obj['width'] + min_spacing < obj['x'] or
-              new_obj['x'] > obj['x'] + obj['width'] + min_spacing or
-              new_obj['y'] + new_obj['height'] + min_spacing < obj['y'] or
-              new_obj['y'] > obj['y'] + obj['height'] + min_spacing
-        ):
-            return True  # Overlap or insufficient spacing found
+        if all(k in obj and k in new_obj for k in ['width', 'height']):
+            if not (
+                new_obj['x'] + new_obj['width'] + min_spacing < obj['x'] or
+                new_obj['x'] > obj['x'] + obj['width'] + min_spacing or
+                new_obj['y'] + new_obj['height'] + min_spacing < obj['y'] or
+                new_obj['y'] > obj['y'] + obj['height'] + min_spacing
+            ):
+                return True
     return False
 
-# Function to generate a room graph
-def generate_office_layout(room_width=12.0, room_height=10.0, num_tables=3, num_chairs=9):
-    """
-    Generates an office layout with walls, doors, windows, and furniture.
-    """
-    objects = []  # List to store objects
-    edges = []    # Connections between nodes
-
-    # Fixed 4 corners of the room as wall nodes
+# Function to generate office layout
+def generate_office_layout(room_width=12.0, room_height=10.0, num_pairs=5, arrangement="grid"):
+    objects, edges = [], []
+    
+    # Define walls
     corners = [
         {'name': 'wall', 'x': 0.0, 'y': 0.0},
         {'name': 'wall', 'x': room_width, 'y': 0.0},
@@ -48,132 +41,97 @@ def generate_office_layout(room_width=12.0, room_height=10.0, num_tables=3, num_
     ]
     objects.extend(corners)
 
-    # Connect walls to form the rectangular boundary
+    # Connect walls
     for i in range(len(corners)):
-        edges.append((i, (i + 1) % len(corners)))  # Circular connection
+        edges.append((i, (i + 1) % len(corners)))
 
     # Add doors and windows
     door_window_positions = []
-    wall_segments = [
-        (corners[0], corners[1]),  # Bottom wall
-        (corners[1], corners[2]),  # Right wall
-        (corners[2], corners[3]),  # Top wall
-        (corners[3], corners[0])   # Left wall
-    ]
-    placed_door = False
-    placed_window = False
-    for wall in wall_segments:
-        wall_start, wall_end = wall
-        if not placed_door:  # Ensure at least one door
-            x = random.uniform(wall_start['x'] + 0.5, wall_end['x'] - 0.5)
-            y = wall_start['y']
-            door = {'name': 'door', 'x': x, 'y': y, 'width': ELEMENTS['door'][0], 'height': ELEMENTS['door'][1]}
+    placed_door, window_count = False, 0
+    for wall_start, wall_end in zip(corners, corners[1:] + [corners[0]]):
+        if not placed_door:
+            x, y = random.uniform(wall_start['x'] + 0.5, wall_end['x'] - 0.5), wall_start['y']
+            door = {'name': 'door', 'x': x, 'y': y, 'width': ELEMENTS['door']['size'][0], 'height': ELEMENTS['door']['size'][1]}
             door_window_positions.append(door)
             placed_door = True
-        if not placed_window:   # Ensure at least one window
-            x = random.uniform(wall_start['x'] + 0.5, wall_end['x'] - 0.5)
-            y = wall_start['y']
-            window = {'name': 'window', 'x': x, 'y': y, 'width': ELEMENTS['window'][0], 'height': ELEMENTS['window'][1]}
+
+        while window_count < 3:
+            x, y = random.uniform(wall_start['x'] + 0.5, wall_end['x'] - 0.5), wall_start['y']
+            window = {'name': 'window', 'x': x, 'y': y, 'width': ELEMENTS['window']['size'][0], 'height': ELEMENTS['window']['size'][1]}
             if not is_overlapping(window, door_window_positions):
                 door_window_positions.append(window)
-                placed_window = True
+                window_count += 1
 
     objects.extend(door_window_positions)
 
-    # Place tables
-    table_positions = []
-    for _ in range(num_tables):
-        while True:
-            x = random.uniform(1.0, room_width - ELEMENTS['table'][0] - 1.0)
-            y = random.uniform(1.0, room_height - ELEMENTS['table'][1] - 1.0)
-            table = {'name': 'table', 'x': x, 'y': y, 'width': ELEMENTS['table'][0], 'height': ELEMENTS['table'][1]}
-            if not is_overlapping(table, objects):
-                table_positions.append(table)
-                objects.append(table)
-                break
+    # Function to place table-chair pairs based on arrangement
+    def place_table_chair_pairs(num_pairs):
+        furniture_list = []
+        for i in range(num_pairs):
+            if arrangement == "line":
+                table_x, table_y = 2.0 + i * 3.0, room_height / 2
+            elif arrangement == "grid":
+                table_x, table_y = 2.0 + (i % 3) * 3.0, 2.0 + (i // 3) * 3.0
+            elif arrangement == "circular":
+                angle = 2 * 3.14159 * i / num_pairs
+                radius = min(room_width, room_height) / 3
+                table_x, table_y = room_width / 2 + radius * torch.cos(torch.tensor(angle)).item(), room_height / 2 + radius * torch.sin(torch.tensor(angle)).item()
+            else:
+                raise ValueError("Invalid arrangement type. Choose 'line', 'grid', or 'circular'.")
 
-    # Place chairs
-    chair_positions = []
-    for _ in range(num_chairs):
-        while True:
-            x = random.uniform(1.0, room_width - ELEMENTS['chair'][0] - 1.0)
-            y = random.uniform(1.0, room_height - ELEMENTS['chair'][1] - 1.0)
-            chair = {'name': 'chair', 'x': x, 'y': y, 'width': ELEMENTS['chair'][0], 'height': ELEMENTS['chair'][1]}
-            if not is_overlapping(chair, objects):
-                chair_positions.append(chair)
-                objects.append(chair)
-                break
+            # Place table
+            table = {'name': 'table', 'x': table_x, 'y': table_y, 'width': ELEMENTS['table']['size'][0], 'height': ELEMENTS['table']['size'][1]}
+            if not is_overlapping(table, objects + furniture_list):
+                furniture_list.append(table)
 
-    # Create edges between tables and chairs if they are in close proximity or adjacent
-    for table in table_positions:
-        for chair in chair_positions:
-            distance = ((table['x'] - chair['x']) ** 2 + (table['y'] - chair['y']) ** 2) ** 0.5
-            if distance <= 2.5:  # Threshold for proximity
-                table_idx = objects.index(table)
-                chair_idx = objects.index(chair)
-                edges.append((table_idx, chair_idx))
+                # Place three chairs around the table
+                chair_positions = [
+                    {'name': 'chair', 'x': table_x - 1.0, 'y': table_y, 'width': ELEMENTS['chair']['size'][0], 'height': ELEMENTS['chair']['size'][1]},
+                    {'name': 'chair', 'x': table_x + 1.0, 'y': table_y, 'width': ELEMENTS['chair']['size'][0], 'height': ELEMENTS['chair']['size'][1]},
+                    {'name': 'chair', 'x': table_x, 'y': table_y - 1.0, 'width': ELEMENTS['chair']['size'][0], 'height': ELEMENTS['chair']['size'][1]}
+                ]
+
+                for chair in chair_positions:
+                    if not is_overlapping(chair, objects + furniture_list):
+                        furniture_list.append(chair)
+                        edges.append((len(objects) + len(furniture_list) - 1, len(objects) + len(furniture_list) - 2))
+
+        return furniture_list
+
+    # Place tables and chairs
+    furniture = place_table_chair_pairs(num_pairs)
+    objects.extend(furniture)
 
     # Create node features
-    node_features = []
-    for obj in objects:
-        node_features.append([
-            list(ELEMENTS.keys()).index(obj['name']),
-            obj['x'], obj['y']
-        ])
-
-    # Convert edge connections and node features to tensors
+    node_features = [[list(ELEMENTS.keys()).index(obj['name']), obj['x'], obj['y']] for obj in objects]
     edge_index = torch.tensor(edges, dtype=torch.long).t().contiguous()
     node_features = torch.tensor(node_features, dtype=torch.float)
+    return Data(x=node_features, edge_index=edge_index), objects
 
-    # Create PyTorch Geometric Data object
-    return Data(x=node_features, edge_index=edge_index)
-
-# Visualization Function
-def visualize_office(data, room_width=12.0, room_height=10.0, padding=1.0):
-    """
-    Visualize the office layout graph with walls, doors, windows, and furniture.
-    Wall names are hidden from the graph visualization.
-    """
+# Visualization function
+def visualize_office(data, objects, room_width=12.0, room_height=10.0, padding=1.0):
     G = to_networkx(data, to_undirected=True)
     positions = {i: (data.x[i, 1].item(), data.x[i, 2].item()) for i in range(data.num_nodes)}
-    labels = {i: list(ELEMENTS.keys())[int(data.x[i, 0].item())] for i in range(data.num_nodes)}
+    labels = {i: obj['name'] for i, obj in enumerate(objects)}
 
-    # Hide wall names in labels
-    for node, label in labels.items():
-        if label == 'wall':
-            labels[node] = ""
+    # Assign pastel colors
+    node_colors = [ELEMENTS[labels[node]]['color'] if labels[node] in ELEMENTS else 'gray' for node in G.nodes()]
+    node_sizes = [300 if labels[node] == 'wall' else 700 for node in G.nodes()]
 
     plt.figure(figsize=(12, 10))
+    plt.title("Office Layout Visualization", fontsize=14)
     plt.xlim(-padding, room_width + padding)
     plt.ylim(-padding, room_height + padding)
-    nx.draw(G, pos=positions, with_labels=False, node_size=700, node_color="lightblue", edge_color="gray")
-    nx.draw_networkx_labels(G, pos=positions, labels=labels, font_color="red", font_size=8)
+
+    # Draw graph with node names
+    nx.draw(G, pos=positions, with_labels=True, labels=labels, node_size=node_sizes, node_color=node_colors, edge_color="gray", font_size=8)
+
     plt.gca().set_aspect('equal', adjustable='box')
     plt.show()
 
-# Generate and visualize the office layout
-office_graph = generate_office_layout()
-print(office_graph)
-visualize_office(office_graph)
-
-def visualize_office(data, room_width=12.0, room_height=10.0, padding=1.0):
-    G = to_networkx(data, to_undirected=True)
-    positions = {i: (data.x[i,1].item(),data.x[1,2].item()) for i in range(data.num_nodes)}
-    labels = {i: list(ELEMENTS.keys())[int(data.x[i,0].item())] for i in range(data.num_nodes)}
-
-    #Hide wall names in labels
-    node_sizes = [100 if list(ELEMENTS.key())[int(data.x[node,0]].item())]] == 'wall' else 700 for node in G.nodes()]
-    node_sizes = [300 if list(ELEMENTS.keys())[int(data.x[node, 0].item())] == 'wall' else 700 for node in G.nodes()]
-
-    plt.figure(figsize=(12, 10))
-    plt.xlim(-padding, room_width + padding)
-    plt.ylim(-padding, room_height + padding)
-    nx.draw(G, pos=positions, with_labels=False, node_size=node_sizes, node_color="lightblue", edge_color="gray")
-    nx.draw_networkx_labels(G, pos=positions, labels=labels, font_color="red", font_size=8)
-    plt.gca().set_aspect('equal', adjustable='box')
-    plt.show()
+# Ask user for furniture arrangement
+user_arrangement = input("Choose furniture arrangement (line, grid, circular): ").strip().lower()
 
 # Generate and visualize the office layout
-office_graph = generate_office_layout(arrangement='line')
-print(office_graph)
-visualize_office(office_graph)
+office_graph, object_list = generate_office_layout(arrangement=user_arrangement)
+visualize_office(office_graph, object_list)
